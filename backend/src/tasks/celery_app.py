@@ -16,16 +16,17 @@ from src.core.logging import configure_logging
 def _build_celery() -> Celery:
     configure_logging()
     settings = get_settings()
-    app = Celery(
+    return Celery(
         "file_tasks",
         broker=settings.celery_broker_url,
         backend=settings.celery_broker_url,
     )
-    # Autodiscover keeps this file thin: each task module declares itself
-    # via the @celery_app.task decorator and Celery picks them up by
-    # walking imports of `src.tasks`.
-    app.autodiscover_tasks(["src.tasks"], related_name="process_file", force=True)
-    return app
 
 
 celery_app = _build_celery()
+
+# Register task modules. The import has to happen AFTER celery_app is
+# built — process_file imports celery_app from this module, and only the
+# attribute already exists in our namespace. Wrapped in noqa because
+# F401 would otherwise flag the unused-looking import.
+from src.tasks import process_file  # noqa: E402, F401
