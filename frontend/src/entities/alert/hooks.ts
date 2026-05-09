@@ -1,37 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { alertsApi } from "@/entities/alert/api";
 import type { AlertItem } from "@/entities/alert/types";
 
-type UseAlertsResult = {
-  data: AlertItem[];
-  isLoading: boolean;
-  error: string | null;
-  refetch: () => Promise<void>;
-};
+export const ALERTS_QUERY_KEY = ["alerts"] as const;
 
-export function useAlerts(): UseAlertsResult {
-  const [data, setData] = useState<AlertItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const refetch = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      setData(await alertsApi.list());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось загрузить алерты");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refetch();
-  }, [refetch]);
-
-  return { data, isLoading, error, refetch };
+export function useAlerts() {
+  return useQuery<AlertItem[]>({
+    queryKey: ALERTS_QUERY_KEY,
+    queryFn: () => alertsApi.list(),
+    // Alerts are written by the same task that updates file status, so
+    // we don't need separate polling — invalidating on the files
+    // refetch keeps both views in sync. See useFiles for the refresh
+    // cadence; the consumer wires up cross-invalidation in the upload
+    // mutation.
+  });
 }

@@ -1,10 +1,12 @@
 /**
  * Page composition root.
  *
- * The job of `page.tsx` is to wire entities and features together —
- * not to fetch data, format dates, or render rows. After the layered
- * refactor it sits at ~70 lines instead of 367; if a screen grows past
- * that again, the right answer is another feature module.
+ * Wires entities and features together; no business logic, no
+ * formatting, no fetching. Data flow:
+ *
+ *   useFiles()  -> react-query, polls while anything is processing
+ *   useAlerts() -> react-query, refreshed on upload via invalidation
+ *   UploadFileModal -> mutation, invalidates both queries on success
  */
 
 "use client";
@@ -28,10 +30,11 @@ export default function Page() {
     void alerts.refetch();
   };
 
-  // Surface the first non-null error from either fetcher. Two parallel
-  // banners would be visual noise; the user only needs one nudge to
-  // hit refresh.
-  const errorMessage = files.error ?? alerts.error;
+  // First non-null error from either fetcher. Two parallel banners
+  // would be visual noise; one nudge to retry is enough.
+  const errorMessage =
+    (files.error instanceof Error ? files.error.message : null) ??
+    (alerts.error instanceof Error ? alerts.error.message : null);
 
   return (
     <Container fluid className="py-4 px-4 bg-light min-vh-100">
@@ -64,16 +67,12 @@ export default function Page() {
             </Alert>
           ) : null}
 
-          <FilesTable files={files.data} isLoading={files.isLoading} />
-          <AlertsTable alerts={alerts.data} isLoading={alerts.isLoading} />
+          <FilesTable files={files.data ?? []} isLoading={files.isLoading} />
+          <AlertsTable alerts={alerts.data ?? []} isLoading={alerts.isLoading} />
         </Col>
       </Row>
 
-      <UploadFileModal
-        show={showModal}
-        onClose={() => setShowModal(false)}
-        onUploaded={refreshAll}
-      />
+      <UploadFileModal show={showModal} onClose={() => setShowModal(false)} />
     </Container>
   );
 }

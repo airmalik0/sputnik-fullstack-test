@@ -1,46 +1,36 @@
 /**
- * Files data-fetching hook.
+ * Files data hook backed by react-query, with adaptive polling.
  *
- * Manual implementation in this commit (matches the original
- * useEffect+useState shape, just relocated). Replaced by react-query
- * with adaptive polling in the next commit; the hook signature is
- * stable so the page does not change shape.
+ * The interesting bit is `refetchInterval`: while at least one file is
+ * in a non-terminal processing state (uploaded / processing), we poll
+ * every 2 seconds so the user sees status transitions live. The instant
+ * every file reaches a terminal state, polling stops on its own. The
+ * original page required clicking "Обновить" to see scan results; this
+ * makes it automatic without burning network when nothing is happening.
  */
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { filesApi } from "@/entities/file/api";
-import type { FileItem } from "@/entities/file/types";
+import { TERMINAL_PROCESSING_STATES, type FileItem } from "@/entities/file/types";
 
-type UseFilesResult = {
-  data: FileItem[];
-  isLoading: boolean;
-  error: string | null;
-  refetch: () => Promise<void>;
-};
+export const FILES_QUERY_KEY = ["files"] as const;
 
-export function useFiles(): UseFilesResult {
-  const [data, setData] = useState<FileItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+const POLL_INTERVAL_MS = 2_000;
 
-  const refetch = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      setData(await filesApi.list());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось загрузить файлы");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refetch();
-  }, [refetch]);
-
-  return { data, isLoading, error, refetch };
+export function useFiles() {
+  return useQuery<FileItem[]>({
+    queryKey: FILES_QUERY_KEY,
+    queryFn: () => filesApi.list(),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data || data.length === 0) return false;
+      const stillWorking = data.some(
+        (file) => !TERMINAL_PROCESSING_STATES.includes(file.processing_status),
+      );
+      return stillWorking ? POLL_INTERVAL_MS : false;
+    },
+  });
 }

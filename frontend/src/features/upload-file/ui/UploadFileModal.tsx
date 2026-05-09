@@ -1,44 +1,31 @@
-/**
- * Upload-file feature: modal with title + file inputs and submit logic.
- *
- * Features bind UI to a side-effecting domain operation. Here:
- *   - validates inputs,
- *   - calls filesApi.upload,
- *   - reports errors,
- *   - notifies the parent on success so it can refetch its data.
- *
- * Kept under `features/` rather than `entities/file/` because creation
- * is a user flow with its own lifecycle (modal open/close, in-progress
- * spinner, error surface), not just a CRUD operation on the entity.
- */
-
 "use client";
 
 import { type FormEvent, useState } from "react";
 import { Alert, Button, Form, Modal } from "react-bootstrap";
 
-import { filesApi } from "@/entities/file/api";
+import { useUploadFile } from "@/features/upload-file/hooks";
 
 type Props = {
   show: boolean;
   onClose: () => void;
-  onUploaded: () => void;
 };
 
-export function UploadFileModal({ show, onClose, onUploaded }: Props) {
+export function UploadFileModal({ show, onClose }: Props) {
   const [title, setTitle] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  const upload = useUploadFile();
 
   function reset() {
     setTitle("");
     setSelectedFile(null);
-    setError(null);
+    setValidationError(null);
+    upload.reset();
   }
 
   function handleClose() {
-    if (isSubmitting) return; // ignore close while a request is in flight
+    if (upload.isPending) return; // ignore close while a request is in flight
     reset();
     onClose();
   }
@@ -46,7 +33,7 @@ export function UploadFileModal({ show, onClose, onUploaded }: Props) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!title.trim() || !selectedFile) {
-      setError("Укажите название и выберите файл");
+      setValidationError("Укажите название и выберите файл");
       return;
     }
 
@@ -54,19 +41,17 @@ export function UploadFileModal({ show, onClose, onUploaded }: Props) {
     form.append("title", title.trim());
     form.append("file", selectedFile);
 
-    setIsSubmitting(true);
-    setError(null);
+    setValidationError(null);
     try {
-      await filesApi.upload(form);
+      await upload.mutateAsync(form);
       reset();
       onClose();
-      onUploaded();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось загрузить файл");
-    } finally {
-      setIsSubmitting(false);
+    } catch {
+      // Error surfaced via `upload.error` below; nothing else to do.
     }
   }
+
+  const errorMessage = validationError ?? (upload.error ? upload.error.message : null);
 
   return (
     <Modal show={show} onHide={handleClose} centered>
@@ -75,9 +60,9 @@ export function UploadFileModal({ show, onClose, onUploaded }: Props) {
           <Modal.Title>Добавить файл</Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          {error ? (
+          {errorMessage ? (
             <Alert variant="danger" className="mb-3">
-              {error}
+              {errorMessage}
             </Alert>
           ) : null}
           <Form.Group className="mb-3">
@@ -100,11 +85,11 @@ export function UploadFileModal({ show, onClose, onUploaded }: Props) {
           </Form.Group>
         </Modal.Body>
         <Modal.Footer>
-          <Button variant="outline-secondary" onClick={handleClose} disabled={isSubmitting}>
+          <Button variant="outline-secondary" onClick={handleClose} disabled={upload.isPending}>
             Отмена
           </Button>
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
-            {isSubmitting ? "Загрузка..." : "Сохранить"}
+          <Button type="submit" variant="primary" disabled={upload.isPending}>
+            {upload.isPending ? "Загрузка..." : "Сохранить"}
           </Button>
         </Modal.Footer>
       </Form>

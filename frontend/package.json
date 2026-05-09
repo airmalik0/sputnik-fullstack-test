@@ -5,6 +5,7 @@
     "build": "next build"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.100.9",
     "bootstrap": "^5.3.8",
     "next": "latest",
     "react": "^18.2.0",
