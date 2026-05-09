@@ -13,9 +13,10 @@ invocations and we don't want to re-validate on every call.
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import Field, computed_field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, computed_field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 # Resolved at import time so it is stable regardless of CWD (Alembic, Celery,
@@ -42,6 +43,20 @@ class Settings(BaseSettings):
 
     storage_dir: Path = Field(default=BACKEND_ROOT / "storage" / "files")
 
+    # Allow-list of origins permitted by CORS. The default covers the
+    # dev frontend on its standard port; production deployments override
+    # via the CORS_ORIGINS env var (comma-separated string).
+    # `NoDecode` disables pydantic-settings' built-in JSON parsing for
+    # complex types so our validator below sees the raw string instead
+    # of a JSON-decoder error.
+    cors_origins: Annotated[list[str], NoDecode] = Field(
+        default=[
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ],
+        alias="CORS_ORIGINS",
+    )
+
     # Hard upper bound on streaming text reads during metadata extraction.
     # Without this, a 5 GB log file uploaded as text/plain would OOM the
     # worker. Chosen to be larger than any realistic legitimate text file but
@@ -52,6 +67,18 @@ class Settings(BaseSettings):
     # Mirrors the original behaviour (10 MB) — kept as config so it's tunable
     # without code changes.
     suspicious_size_bytes: int = 10 * 1024 * 1024
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _split_csv_origins(cls, value: object) -> object:
+        # Allow CORS_ORIGINS to be set as a comma-separated string in
+        # plain env-files, in addition to JSON. Easier to maintain in a
+        # docker-compose `environment:` block than escaping a JSON array.
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped.startswith("["):
+                return [s.strip() for s in stripped.split(",") if s.strip()]
+        return value
 
     @computed_field  # type: ignore[prop-decorator]
     @property
