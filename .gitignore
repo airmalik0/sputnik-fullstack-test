@@ -9,6 +9,9 @@ wheels/
 # Node — ignored at every depth (not just frontend/)
 node_modules/
 
+# Local docker compose overrides (port remaps, env tweaks for dev)
+docker-compose.override.yml
+
 # Virtual environments
 .venv
 .idea

@@ -30,17 +30,16 @@ from src.storage.local import LocalFileStorage
 
 
 @lru_cache(maxsize=1)
-def _build_storage(settings: Settings) -> FileStorage:
+def _build_storage() -> FileStorage:
     # Cached so we don't re-create the storage object (and re-run mkdir)
-    # on every request. Settings is hashable enough for lru_cache because
-    # we always pass the same singleton instance.
-    return LocalFileStorage(settings.storage_dir)
+    # on every request. Reads from get_settings() directly because
+    # Settings instances are not hashable (Pydantic models don't implement
+    # __hash__) — passing one through lru_cache would TypeError.
+    return LocalFileStorage(get_settings().storage_dir)
 
 
-def get_storage(
-    settings: Settings = Depends(get_settings),
-) -> FileStorage:
-    return _build_storage(settings)
+def get_storage() -> FileStorage:
+    return _build_storage()
 
 
 async def get_db_session() -> AsyncIterator[AsyncSession]:
