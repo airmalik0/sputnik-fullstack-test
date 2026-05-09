@@ -12,21 +12,35 @@ it conforms.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+
+@dataclass(frozen=True)
+class StoredObject:
+    """Metadata captured while writing a stream to storage.
+
+    Both the size and the sha256 fingerprint are computed in a single
+    pass over the input — there is no second read of the file. The
+    fingerprint enables future deduplication and integrity-check
+    workflows without changing the upload path.
+    """
+
+    size: int
+    sha256: str
 
 
 class FileStorage(Protocol):
     async def save_stream(
         self, stream: AsyncIterator[bytes], stored_name: str
-    ) -> int:
+    ) -> StoredObject:
         """Persist a stream of chunks under `stored_name`.
 
-        Returns the total number of bytes written.
-
-        Implementations must be atomic: a partial write must never become
-        observable under the final name. Concretely, callers rely on the
-        fact that if `save_stream` raises, `exists(stored_name)` is False.
+        Returns size and sha256 computed in the same pass. Implementations
+        must be atomic: a partial write must never become observable under
+        the final name. Concretely, callers rely on the fact that if
+        `save_stream` raises, `exists(stored_name)` is False.
         """
         ...
 

@@ -23,12 +23,13 @@ scope for this MVP, called out in the README).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from src.storage.base import FileStorage
+from src.storage.base import FileStorage, StoredObject
 
 
 class LocalFileStorage(FileStorage):
@@ -47,7 +48,7 @@ class LocalFileStorage(FileStorage):
 
     async def save_stream(
         self, stream: AsyncIterator[bytes], stored_name: str
-    ) -> int:
+    ) -> StoredObject:
         target = self.path(stored_name)
         # Temp file lives in the same directory as the target so that
         # os.replace is a rename within one filesystem (atomic).
@@ -55,6 +56,9 @@ class LocalFileStorage(FileStorage):
             prefix=".tmp-", suffix=stored_name, dir=str(self._root)
         )
         temp_path = Path(temp_path_str)
+        # Hashing in the same pass as writing avoids a second read of the
+        # file (which on a 1 GB upload would mean 1 GB of unnecessary I/O).
+        hasher = hashlib.sha256()
         bytes_written = 0
         try:
             try:
@@ -62,6 +66,7 @@ class LocalFileStorage(FileStorage):
                     if not chunk:
                         continue
                     bytes_written += len(chunk)
+                    hasher.update(chunk)
                     await asyncio.to_thread(os.write, fd, chunk)
                 # fsync the file before rename: the rename is atomic, but
                 # without fsync the file's data may not be durable when the
@@ -77,7 +82,7 @@ class LocalFileStorage(FileStorage):
                 await asyncio.to_thread(os.fsync, dir_fd)
             finally:
                 await asyncio.to_thread(os.close, dir_fd)
-            return bytes_written
+            return StoredObject(size=bytes_written, sha256=hasher.hexdigest())
         except BaseException:
             # Clean up the temp file on any failure (including cancellation)
             # so we never leak partial uploads under .tmp-* names.

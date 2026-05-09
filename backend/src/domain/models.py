@@ -32,6 +32,10 @@ class StoredFile(Base):
     stored_name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     mime_type: Mapped[str] = mapped_column(String(255), nullable=False)
     size: Mapped[int] = mapped_column(Integer, nullable=False)
+    # SHA-256 of the on-disk content. 64 hex chars; nullable for rows that
+    # predate this column (production migrations don't backfill — a
+    # background job can recompute lazily if ever needed).
+    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     processing_status: Mapped[str] = mapped_column(
         String(50), nullable=False, default="uploaded"
     )

@@ -74,9 +74,9 @@ class FileService:
 
         # `storage.save_stream` raises on I/O error; nothing has been
         # written to the DB yet, so we propagate as-is.
-        bytes_written = await self._storage.save_stream(stream, stored_name)
+        stored = await self._storage.save_stream(stream, stored_name)
 
-        if bytes_written == 0:
+        if stored.size == 0:
             # Mirrors the original 'File is empty' guard, but applied after
             # writing — necessary for streaming uploads where we don't know
             # the size until we've consumed the stream.
@@ -99,7 +99,8 @@ class FileService:
             original_name=original_name or stored_name,
             stored_name=stored_name,
             mime_type=resolved_mime,
-            size=bytes_written,
+            size=stored.size,
+            sha256=stored.sha256,
             processing_status=ProcessingStatus.UPLOADED.value,
         )
         try:
