@@ -8,8 +8,12 @@ services:
     env_file: ".env.dev"
     ports:
       - "8000:8000"
+    # The API enqueues Celery tasks via .delay() on every upload, so it
+    # needs the broker to be reachable at request time. Without this
+    # depends_on the first upload after a cold start could fail.
     depends_on:
       - backend-db
+      - backend-redis
 
   backend-worker:
     build: ./backend
@@ -20,6 +24,7 @@ services:
       - ./backend:/backend
     depends_on:
       - backend-db
+      - backend-redis
 
   backend-db:
     image: postgres:latest
