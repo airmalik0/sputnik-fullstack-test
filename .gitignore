@@ -6,6 +6,9 @@ dist/
 wheels/
 *.egg-info
 
+# Node — ignored at every depth (not just frontend/)
+node_modules/
+
 # Virtual environments
 .venv
 .idea
