@@ -18,6 +18,41 @@ docker exec -it backend alembic upgrade head
 - Фронт: `http://localhost:3000/test`
 - Бэк (Swagger): `http://localhost:8000/docs`
 
+### Конфигурация
+
+Все настройки бэкенда — через env-переменные, читаются `pydantic-settings`
+из `.env.dev` (см. `.env.dev.example` для полного списка с
+комментариями):
+
+| Переменная                  | Зачем                                                  |
+| --------------------------- | ------------------------------------------------------ |
+| `POSTGRES_*`, `PGPORT`      | DSN до Postgres                                        |
+| `CELERY_BROKER_URL`         | Redis для Celery                                       |
+| `CORS_ORIGINS`              | Comma-separated allow-list для фронтенд-домена         |
+| `TEXT_METADATA_BYTE_LIMIT`  | Кэп на размер `text/*` файла для подсчёта метаданных   |
+| `SUSPICIOUS_SIZE_BYTES`     | Порог «слишком большого» файла (по умолчанию 10 MiB)   |
+
+Фронтенд читает `NEXT_PUBLIC_API_URL` (см. `frontend/.env.example`) —
+по умолчанию `http://localhost:8000`.
+
+### Локальные конфликты портов
+
+Если 3000 / 5433 заняты другими стэками, положи рядом
+`docker-compose.override.yml` (он в `.gitignore`):
+
+```yaml
+services:
+  frontend:
+    ports: !override ["3010:3000"]
+  backend:
+    environment:
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:3010"
+  backend-db:
+    ports: !override []
+```
+
+Запускать тогда `docker compose -f docker-compose.dev.yml -f docker-compose.override.yml up`.
+
 ## Бэкенд: что изменилось
 
 ### Архитектура
@@ -158,7 +193,8 @@ alerts) на success.
 
 ## Тесты
 
-`uv run pytest` — 24 теста, ~150 ms, без БД и без диска:
+`cd backend && uv run pytest` — 31 тест, ~3 с (большая часть — sleep
+в одном тесте на ordering):
 
 - `test_scan_service` — параметризованная таблица правил
   сканирования (расширение/MIME/размер → вердикт). Покрывает
@@ -169,6 +205,28 @@ alerts) на success.
 - `test_file_service` — контракт create/delete/download против
   in-memory fakes; среди прочего проверяет, что пустая загрузка
   чистит блоб.
+- `test_api_integration` — end-to-end через `httpx ASGITransport`
+  поверх SQLite + InMemoryStorage. Покрывает CRUD-цикл, 404 на
+  несуществующий файл, 400 на пустую загрузку, descending order
+  списка. Этот блок ловит баги, которые видно только когда FastAPI
+  собирает граф зависимостей для реального запроса (как тот, что
+  пробрался в `unhashable Settings` — с этим тестом он бы не уехал).
+
+## Smoke-тест
+
+Поднял стек, прогнал три загрузки через UI (Playwright):
+
+- `clean.txt` (3 строки) → `processed/clean`,
+  `metadata: {line_count: 3, char_count: 39}`.
+- `payload.exe` → `processed/suspicious`,
+  `details: "suspicious extension .exe"`.
+- `sample.pdf` (3 страницы pypdf) → `processed/clean`,
+  `metadata: {approx_page_count: 3}`.
+
+Алерт `info: File processed successfully` появляется в UI
+автоматически за ~2 с (поллинг останавливается, как только все файлы
+выходят из processing). Скачивание возвращает оригинальный байт-в-байт
+контент.
 
 ## Структура
 
@@ -183,7 +241,7 @@ backend/
     api/          dependencies, exception_handlers, schemas, routers/
     tasks/        celery_app, process_file
     app.py        FastAPI factory (composition root)
-  tests/          24 unit-теста с in-memory fakes
+  tests/          31 теста: unit на сервисах + интеграционные через ASGITransport
   migrations/     Alembic; добавлена ревизия для sha256
 
 frontend/
