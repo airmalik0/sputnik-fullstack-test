@@ -28,10 +28,7 @@ from src.api.dependencies import (
 )
 from src.api.schemas import FileItem, FileUpdate
 from src.services.file_service import FileService
-# Importing the legacy task by name to keep behaviour identical until the
-# Celery refactor lands in the next commit. Once `process_file` is in
-# place, this import switches to it and the legacy module is removed.
-from src.tasks import scan_file_for_threats
+from src.tasks import process_file
 
 
 router = APIRouter(prefix="/files", tags=["files"])
@@ -73,7 +70,7 @@ async def create_file(
     # row by id, so the row must be visible to other connections first.
     # Enqueueing before commit would race with the worker.
     await session.commit()
-    scan_file_for_threats.delay(created.id)
+    process_file.delay(created.id)
     return FileItem.model_validate(created)
 
 
