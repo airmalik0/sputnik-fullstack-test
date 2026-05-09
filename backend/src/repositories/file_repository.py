@@ -18,8 +18,13 @@ class FileRepository:
         self._session = session
 
     async def list_all(self) -> list[StoredFile]:
+        # Tiebreak on `id` so two rows created in the same millisecond
+        # come back in a stable order — without this the test suite is
+        # flaky on SQLite (which has whole-second precision for now()).
         result = await self._session.execute(
-            select(StoredFile).order_by(StoredFile.created_at.desc())
+            select(StoredFile).order_by(
+                StoredFile.created_at.desc(), StoredFile.id.desc()
+            )
         )
         return list(result.scalars().all())
 

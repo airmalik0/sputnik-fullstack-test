@@ -13,8 +13,10 @@ class AlertRepository:
         self._session = session
 
     async def list_all(self) -> list[Alert]:
+        # Tiebreak on `id` so simultaneously-created rows have a stable
+        # order. `id` is autoincrement so it grows monotonically.
         result = await self._session.execute(
-            select(Alert).order_by(Alert.created_at.desc())
+            select(Alert).order_by(Alert.created_at.desc(), Alert.id.desc())
         )
         return list(result.scalars().all())
 

@@ -70,6 +70,9 @@ async def create_file(
     # row by id, so the row must be visible to other connections first.
     # Enqueueing before commit would race with the worker.
     await session.commit()
+    # Refresh to populate server-side defaults (created_at / updated_at)
+    # before serialising the response.
+    await session.refresh(created)
     process_file.delay(created.id)
     return FileItem.model_validate(created)
 
@@ -92,6 +95,10 @@ async def update_file(
 ) -> FileItem:
     file = await file_service.update_title(file_id=file_id, title=payload.title)
     await session.commit()
+    # Refresh after commit so the response carries the new `updated_at`
+    # populated by the DB's `onupdate=func.now()` trigger. Without this
+    # the in-memory object holds the pre-update timestamp.
+    await session.refresh(file)
     return FileItem.model_validate(file)
 
 
