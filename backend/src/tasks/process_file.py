@@ -40,12 +40,13 @@ from pathlib import Path
 from celery.utils.log import get_task_logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.config import get_settings
 from src.core.db import get_session_factory
 from src.domain.enums import AlertLevel, ProcessingStatus, ScanStatus
 from src.domain.models import Alert, StoredFile
+from src.services.metadata_extractor import MetadataExtractor
 from src.services.scan_service import ScanResult, ScanService
 from src.storage.local import LocalFileStorage
-from src.core.config import get_settings
 from src.tasks.celery_app import celery_app
 
 logger = get_task_logger(__name__)
@@ -62,34 +63,6 @@ def _run_in_worker_loop(coroutine):
         _worker_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(_worker_loop)
     return _worker_loop.run_until_complete(coroutine)
-
-
-def _extract_metadata(file: StoredFile, on_disk: Path) -> dict:
-    """Compute file metadata.
-
-    Inlined here rather than promoted to a service because there is one
-    caller and the rules are short. If a second consumer appears, this
-    moves to `services/metadata_extractor.py` without ceremony.
-    """
-    metadata: dict = {
-        "extension": Path(file.original_name).suffix.lower(),
-        "size_bytes": file.size,
-        "mime_type": file.mime_type,
-    }
-    if file.mime_type.startswith("text/"):
-        # Identical to the original behaviour. Bounded reads land in a
-        # later commit (perf(metadata)).
-        content = on_disk.read_text(encoding="utf-8", errors="ignore")
-        metadata["line_count"] = len(content.splitlines())
-        metadata["char_count"] = len(content)
-    elif file.mime_type == "application/pdf":
-        # Counting `/Type /Page` byte sequences is a heuristic from the
-        # original code. It misses non-canonical PDFs but matches the
-        # behaviour we are required to preserve. Replaced with pypdf in
-        # the next perf commit.
-        content = on_disk.read_bytes()
-        metadata["approx_page_count"] = max(content.count(b"/Type /Page"), 1)
-    return metadata
 
 
 def _alert_for(file: StoredFile) -> Alert:
@@ -136,6 +109,7 @@ async def _process_file(session: AsyncSession, file_id: str) -> None:
     settings = get_settings()
     storage = LocalFileStorage(settings.storage_dir)
     scanner = ScanService(suspicious_size_bytes=settings.suspicious_size_bytes)
+    extractor = MetadataExtractor(text_byte_limit=settings.text_metadata_byte_limit)
 
     file.processing_status = ProcessingStatus.PROCESSING.value
 
@@ -155,7 +129,7 @@ async def _process_file(session: AsyncSession, file_id: str) -> None:
             file.scan_status = ScanStatus.FAILED.value
         file.scan_details = "stored file not found during metadata extraction"
     else:
-        file.metadata_json = _extract_metadata(file, storage.path(file.stored_name))
+        file.metadata_json = extractor.extract(file, storage.path(file.stored_name))
         file.processing_status = ProcessingStatus.PROCESSED.value
 
     session.add(_alert_for(file))
